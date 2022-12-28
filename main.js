@@ -1,13 +1,17 @@
 'use strict';
 
 let gl;                         // The webgl context.
-let surface;                    // A surface model
+let surface;                   // A surface model
 let shProgram;                  // A shader program
 let spaceball;                  // A SimpleRotator object that lets the user rotate the view by mouse.
+let li = 30;
 
 function deg2rad(angle) {
     return angle * Math.PI / 180;
-}//Constructor
+}
+
+
+// Constructor
 function Model(name) {
     this.name = name;
     this.iVertexBuffer = gl.createBuffer();
@@ -58,7 +62,7 @@ function ShaderProgram(name, program) {
     // Location of the uniform matrix representing the combined transformation.
     this.iModelViewProjectionMatrix = -1;
     this.iNormalMatrix = -1;
-    
+    this.lightPosLoc = -1;
 
     this.Use = function () {
         gl.useProgram(this.prog);
@@ -101,10 +105,44 @@ function draw() {
 
     /* Draw the six faces of a cube, with different colors. */
     gl.uniform4fv(shProgram.iColor, [0.2, 0.8, 0, 1]);
+    gl.uniform3fv(shProgram.lightPosLoc, [0, -10 + 20 * Math.sin(Date.now() * 0.0005), -2]);
     surface.Draw();
 }
+function drawing() {
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    /* Set the values of the projection transformation */
+    let projection = m4.perspective(Math.PI / 8, 1, 8, 12);
+    
+    /* Get the view matrix from the SimpleRotator object.*/
+    let modelView = spaceball.getViewMatrix();
 
+    let rotateToPointZero = m4.axisRotation([0.707, 0.707, 0], 0.7);
+    let translateToPointZero = m4.translation(0, 0, -10);
+
+    let matAccum0 = m4.multiply(rotateToPointZero, modelView);
+    let matAccum1 = m4.multiply(translateToPointZero, matAccum0);
+
+    /* Multiply the projection matrix times the modelview matrix to give the
+       combined transformation matrix, and send that to the shader program. */
+    let modelViewProjection = m4.multiply(projection, matAccum1);
+
+    gl.uniformMatrix4fv(shProgram.iModelViewProjectionMatrix, false, modelViewProjection);
+
+    let modelviewInv = new Float32Array(16);
+    let normalmatrix = new Float32Array(16);
+    mat4Invert(modelViewProjection, modelviewInv);
+    mat4Transpose(modelviewInv, normalmatrix);
+
+    gl.uniformMatrix4fv(shProgram.iNormalMatrix, false, normalmatrix);
+
+    /* Draw the six faces of a cube, with different colors. */
+    gl.uniform4fv(shProgram.iColor, [0.2, 0.8, 0, 1]);
+    gl.uniform3fv(shProgram.lightPosLoc, [0, -10 + 20 * Math.sin(Date.now() * 0.0005), -2]);
+    surface.Draw();
+    window.requestAnimationFrame(drawing)
+}
 
 function CreateSurfaceData(norms = false) {
     let vertexList = [];
@@ -198,6 +236,16 @@ function CreateSurfaceData(norms = false) {
     return vertexList;
 }
 
+// function pear(a, b, i, j) {
+//     let x = r(a, b, i) * Math.sin(j)
+//     let y = r(a, b, i) * Math.cos(j)
+//     let z = i
+//     return { x: x, y: y, z: z }
+// }
+// function r(a, b, i) {
+//     return (i * Math.sqrt(i * (a - i)) / b)
+// }
+
 function shoe(x,y){
     let x1 = x
     let y1 = y
@@ -220,20 +268,23 @@ function vec3Normalize(a) {
     a[0] /= mag; a[1] /= mag; a[2] /= mag;
 }
 
-
 /* Initialize the WebGL context. Called from init() */
 function initGL() {
-    let prog = createProgram( gl, vertexShaderSource, fragmentShaderSource );
+    let prog = createProgram(gl, vertexShaderSource, fragmentShaderSource);
 
     shProgram = new ShaderProgram('Basic', prog);
     shProgram.Use();
 
-    shProgram.iAttribVertex              = gl.getAttribLocation(prog, "vertex");
+    shProgram.iAttribVertex = gl.getAttribLocation(prog, "vertex");
+    shProgram.iAttribNormal = gl.getAttribLocation(prog, "normal");
     shProgram.iModelViewProjectionMatrix = gl.getUniformLocation(prog, "ModelViewProjectionMatrix");
-    shProgram.iColor                     = gl.getUniformLocation(prog, "color");
+    shProgram.iNormalMatrix = gl.getUniformLocation(prog, "NormalMatrix");
+    shProgram.iColor = gl.getUniformLocation(prog, "color");
+    shProgram.lightPosLoc = gl.getUniformLocation(prog, "light");
 
     surface = new Model('Surface');
     surface.BufferData(CreateSurfaceData());
+    surface.NormalBufferData(CreateSurfaceData(1));
 
     gl.enable(gl.DEPTH_TEST);
 }
@@ -248,24 +299,24 @@ function initGL() {
  * source code for the vertex shader and for the fragment shader.
  */
 function createProgram(gl, vShader, fShader) {
-    let vsh = gl.createShader( gl.VERTEX_SHADER );
-    gl.shaderSource(vsh,vShader);
+    let vsh = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vsh, vShader);
     gl.compileShader(vsh);
-    if ( ! gl.getShaderParameter(vsh, gl.COMPILE_STATUS) ) {
+    if (!gl.getShaderParameter(vsh, gl.COMPILE_STATUS)) {
         throw new Error("Error in vertex shader:  " + gl.getShaderInfoLog(vsh));
-     }
-    let fsh = gl.createShader( gl.FRAGMENT_SHADER );
+    }
+    let fsh = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fsh, fShader);
     gl.compileShader(fsh);
-    if ( ! gl.getShaderParameter(fsh, gl.COMPILE_STATUS) ) {
-       throw new Error("Error in fragment shader:  " + gl.getShaderInfoLog(fsh));
+    if (!gl.getShaderParameter(fsh, gl.COMPILE_STATUS)) {
+        throw new Error("Error in fragment shader:  " + gl.getShaderInfoLog(fsh));
     }
     let prog = gl.createProgram();
-    gl.attachShader(prog,vsh);
+    gl.attachShader(prog, vsh);
     gl.attachShader(prog, fsh);
     gl.linkProgram(prog);
-    if ( ! gl.getProgramParameter( prog, gl.LINK_STATUS) ) {
-       throw new Error("Link error in program:  " + gl.getProgramInfoLog(prog));
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        throw new Error("Link error in program:  " + gl.getProgramInfoLog(prog));
     }
     return prog;
 }
@@ -277,14 +328,18 @@ function createProgram(gl, vShader, fShader) {
 function init() {
     let canvas;
     try {
-        canvas = document.getElementById("webglcanvas");
+        let resolution = Math.min(window.innerHeight, window.innerWidth);
+        canvas = document.querySelector('canvas');
         gl = canvas.getContext("webgl");
-        if ( ! gl ) {
+        canvas.width = resolution;
+        canvas.height = resolution;
+        gl.viewport(0, 0, resolution, resolution);
+        if (!gl) {
             throw "Browser does not support WebGL";
         }
     }
     catch (e) {
-        document.getElementById("canvas-holder").innerHTML =
+        document.querySelector('"canvas-holder"').innerHTML =
             "<p>Sorry, could not get a WebGL graphics context.</p>";
         return;
     }
@@ -299,5 +354,56 @@ function init() {
 
     spaceball = new TrackballRotator(canvas, draw, 0);
 
-    draw();
+    window.requestAnimationFrame(drawing);
+}
+
+function mat4Transpose(a, transposed) {
+    var t = 0;
+    for (var i = 0; i < 4; ++i) {
+        for (var j = 0; j < 4; ++j) {
+            transposed[t++] = a[j * 4 + i];
+        }
+    }
+}
+
+function mat4Invert(m, inverse) {
+    var inv = new Float32Array(16);
+    inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] +
+        m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+    inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] -
+        m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+    inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] +
+        m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+    inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] -
+        m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+    inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] -
+        m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+    inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] +
+        m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+    inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] -
+        m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+    inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] +
+        m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+    inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] +
+        m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+    inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] -
+        m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+    inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] +
+        m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+    inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] -
+        m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+    inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] -
+        m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+    inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] +
+        m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+    inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] -
+        m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+    inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] +
+        m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+
+    var det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+    if (det == 0) return false;
+    det = 1.0 / det;
+    for (var i = 0; i < 16; i++) inverse[i] = inv[i] * det;
+    return true;
 }
