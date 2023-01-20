@@ -1,3 +1,5 @@
 # WebGL
 Krasin TR-22mp Variant № 13
-![GIF](https://github.com/Krasin0880/WebGL/blob/CGW/Безіменний.gif)
+![image](https://github.com/Krasin0880/WebGL/blob/CGW/Безіменний.gif)
+
+
